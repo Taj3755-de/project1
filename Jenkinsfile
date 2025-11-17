@@ -100,37 +100,38 @@ pipeline {
         /***************************
          * 5. HEALTH CHECK
          ***************************/
-        stage('Health Check') {
-            steps {
-                sshagent([SSH_CRED]) {
-                    script {
-                        def pod = sh(
-                            script: """
-                                ssh ${K8S_MASTER} \\
-                                "kubectl get pods -n ${NAMESPACE} -l app=${APP_NAME},color=${env.TARGET} -o jsonpath='{.items[0].metadata.name}'"
-                            """,
-                            returnStdout: true
-                        ).trim()
+stage('Health Check') {
+    steps {
+        sshagent([SSH_CRED]) {
+            script {
+                def pod = sh(
+                    script: """
+                        ssh ${K8S_MASTER} \\
+                        "kubectl get pods -n ${NAMESPACE} -l app=${APP_NAME},color=${env.TARGET} -o jsonpath='{.items[0].metadata.name}'"
+                    """,
+                    returnStdout: true
+                ).trim()
 
-                        sh """
-                            ssh ${K8S_MASTER} '
-                                for i in {1..10}; do
-                                    STATUS=$(kubectl exec -n ${NAMESPACE} ${pod} -- curl -s http://localhost:8080${HEALTH_URL} | jq -r .status)
-                                    if [ "$STATUS" = "UP" ]; then
-                                        echo "Health OK"
-                                        exit 0
-                                    fi
-                                    echo "Retrying health check..."
-                                    sleep 5
-                                done
-                                echo "Health FAILED"
-                                exit 1
-                            '
-                        """
-                    }
-                }
+                sh """
+                    ssh ${K8S_MASTER} "
+                        for i in {1..10}; do
+                            STATUS=\\\$(kubectl exec -n ${NAMESPACE} ${pod} -- curl -s http://localhost:8080${HEALTH_URL} | jq -r .status)
+                            if [ \\\\"\\\$STATUS\\\\" = \\\\"UP\\\\" ]; then
+                                echo 'Health OK'
+                                exit 0
+                            fi
+                            echo 'Retrying health check...'
+                            sleep 5
+                        done
+                        echo 'Health FAILED'
+                        exit 1
+                    "
+                """
             }
         }
+    }
+}
+
 
         /***************************
          * 6. SWITCH SERVICE
