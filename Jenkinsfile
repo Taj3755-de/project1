@@ -116,37 +116,54 @@ pipeline {
         /***************************
          * 6. HEALTH CHECK
          ***************************/
-        stage('Health Check') {
-            steps {
-                sshagent([SSH_CRED]) {
-                    script {
+     stage('Health Check') {
+    steps {
+        sshagent([SSH_CRED]) {
+            script {
 
-                        def pod = sh(
-                            script: """
-                                ssh ${K8S_MASTER} "kubectl get pods -n ${NAMESPACE} -l app=${APP_NAME},color=${env.TARGET} -o jsonpath='{.items[0].metadata.name}'"
-                            """,
-                            returnStdout: true
-                        ).trim()
+                def pod = sh(
+                    script: """
+                        ssh ${K8S_MASTER} "kubectl get pods -n ${NAMESPACE} -l app=${APP_NAME},color=${env.TARGET} -o jsonpath='{.items[0].metadata.name}'"
+                    """,
+                    returnStdout: true
+                ).trim()
 
-                        sh """
-                            ssh ${K8S_MASTER} "
-                                for i in {1..10}; do
-                                    STATUS=\\\$(kubectl exec -n ${NAMESPACE} ${pod} -- curl -s http://localhost:8080${HEALTH_URL} | jq -r .status)
-                                    if [ \\"\$STATUS\\" = \\"UP\\" ]; then
-                                        echo 'Health OK'
-                                        exit 0
-                                    fi
-                                    echo 'Retrying health check...'
-                                    sleep 5
-                                done
-                                echo 'Health FAILED'
-                                exit 1
-                            "
-                        """
-                    }
-                }
+                echo "Checking health for pod: ${pod}"
+
+                sh """
+                    ssh ${K8S_MASTER} '
+                        # Wait for pod to be in Ready state
+                        kubectl wait --for=condition=Ready pod/${pod} -n ${NAMESPACE} --timeout=60s || exit 1
+
+                        # Get container name dynamically
+                        CONTAINER=$(kubectl get pod ${pod} -n ${NAMESPACE} -o jsonpath="{.spec.containers[0].name}")
+
+                        echo "Using container: \$CONTAINER"
+
+                        for i in {1..10}; do
+                            RAW=$(kubectl exec -n ${NAMESPACE} ${pod} -c \$CONTAINER -- curl -s http://localhost:8080${HEALTH_URL})
+                            echo "Response: \$RAW"
+
+                            STATUS=$(echo \$RAW | grep -o "UP" || true)
+
+                            if [ "\$STATUS" = "UP" ]; then
+                                echo "Health OK"
+                                exit 0
+                            fi
+
+                            echo "Retrying health check..."
+                            sleep 5
+                        done
+
+                        echo "Health FAILED"
+                        exit 1
+                    '
+                """
             }
         }
+    }
+}
+
 
         /***************************
          * 7. SWITCH TRAFFIC
