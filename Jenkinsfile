@@ -2,106 +2,168 @@ pipeline {
     agent any
 
     environment {
+        // App settings
         APP_NAME        = "bluegreen-app"
-        IMAGE_REPO      = "157314643992.dkr.ecr.us-east-1.amazonaws.com/finacplus/app-01v"
+
+        // ECR config
         AWS_REGION      = "us-east-1"
-        CHART_PATH      = "helm/bluegreen-app"
-        RELEASE_NAME    = "finacplus"
+        ACCOUNT_ID      = "157314643992"
+        REPO            = "finacplus/app-01v"
+        IMAGE_URI       = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO}"
+
+        // Kubernetes SSH settings
+        K8S_MASTER      = "rocky@172.31.86.230"
+        SSH_CRED        = "kube-master-ssh"
+
+        // Helm settings
+        HELM_RELEASE    = "finacplus"
+        HELM_CHART_PATH = "/home/rocky/helm/bluegreen"
         NAMESPACE       = "default"
+
+        // Health Check
         HEALTH_URL      = "/actuator/health"
     }
 
     stages {
 
+        /***************************
+         * 1. CHECKOUT
+         ***************************/
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
+        /***************************
+         * 2. BUILD AND PUSH IMAGE
+         ***************************/
         stage('Build & Push Docker Image') {
             steps {
                 sh """
                     aws ecr get-login-password --region ${AWS_REGION} \
-                      | docker login --username AWS --password-stdin ${IMAGE_REPO}
+                      | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-                    docker build -t ${IMAGE_REPO}:${BUILD_NUMBER} ./app
-                    docker push ${IMAGE_REPO}:${BUILD_NUMBER}
+                    docker build -t ${IMAGE_URI}:${BUILD_NUMBER} ./app
+                    docker push ${IMAGE_URI}:${BUILD_NUMBER}
                 """
             }
         }
 
-        stage('Determine Active Color') {
+        /***************************
+         * 3. DETECT LIVE COLOR
+         ***************************/
+        stage('Detect Live Color') {
             steps {
-                script {
-                    def active = sh(
-                        script: "kubectl get svc ${RELEASE_NAME} -o jsonpath='{.spec.selector.color}'",
-                        returnStdout: true
-                    ).trim()
+                sshagent([SSH_CRED]) {
+                    script {
+                        def activeColor = sh(
+                            script: """
+                                ssh -o StrictHostKeyChecking=no ${K8S_MASTER} \\
+                                "kubectl get svc ${HELM_RELEASE} -n ${NAMESPACE} -o jsonpath='{.spec.selector.color}'"
+                            """,
+                            returnStdout: true
+                        ).trim()
 
-                    env.TARGET = active == "blue" ? "green" : "blue"
-                    echo "ACTIVE: ${active}, TARGET: ${env.TARGET}"
+                        if (activeColor == "blue") {
+                            env.TARGET = "green"
+                        } else if (activeColor == "green") {
+                            env.TARGET = "blue"
+                        } else {
+                            env.TARGET = "blue"
+                        }
+
+                        echo "Active color: ${activeColor}, deploying to: ${env.TARGET}"
+                    }
                 }
             }
         }
 
+        /***************************
+         * 4. DEPLOY USING HELM
+         ***************************/
         stage('Deploy New Color using Helm') {
             steps {
-                script {
+                sshagent([SSH_CRED]) {
                     sh """
-                        helm upgrade --install ${RELEASE_NAME}-${env.TARGET} ${CHART_PATH} \
+                        ssh ${K8S_MASTER} \\
+                        "helm upgrade --install ${HELM_RELEASE}-${env.TARGET} ${HELM_CHART_PATH} \
                             --namespace ${NAMESPACE} \
-                            -f ${CHART_PATH}/values-${env.TARGET}.yaml \
-                            --set image.tag=${BUILD_NUMBER}
+                            -f ${HELM_CHART_PATH}/values-${env.TARGET}.yaml \
+                            --set image.tag=${BUILD_NUMBER} \
+                            --set image.repository=${IMAGE_URI}"
                     """
                 }
             }
         }
 
+        /***************************
+         * 5. HEALTH CHECK
+         ***************************/
         stage('Health Check') {
             steps {
-                script {
-                    def pod = sh(
-                        script: "kubectl get pods -l app=${APP_NAME},color=${env.TARGET} -o jsonpath='{.items[0].metadata.name}'",
-                        returnStdout: true
-                    ).trim()
+                sshagent([SSH_CRED]) {
+                    script {
+                        def pod = sh(
+                            script: """
+                                ssh ${K8S_MASTER} \\
+                                "kubectl get pods -n ${NAMESPACE} -l app=${APP_NAME},color=${env.TARGET} -o jsonpath='{.items[0].metadata.name}'"
+                            """,
+                            returnStdout: true
+                        ).trim()
 
-                    sh """
-                        for i in {1..10}; do
-                            STATUS=\$(kubectl exec ${pod} -- curl -s http://localhost:8080${HEALTH_URL} | jq -r .status)
-                            if [ "\$STATUS" == "UP" ]; then
-                                echo "Health OK"
-                                exit 0
-                            fi
-                            sleep 5
-                        done
-                        exit 1
-                    """
+                        sh """
+                            ssh ${K8S_MASTER} '
+                                for i in {1..10}; do
+                                    STATUS=$(kubectl exec -n ${NAMESPACE} ${pod} -- curl -s http://localhost:8080${HEALTH_URL} | jq -r .status)
+                                    if [ "$STATUS" = "UP" ]; then
+                                        echo "Health OK"
+                                        exit 0
+                                    fi
+                                    echo "Retrying health check..."
+                                    sleep 5
+                                done
+                                echo "Health FAILED"
+                                exit 1
+                            '
+                        """
+                    }
                 }
             }
         }
 
+        /***************************
+         * 6. SWITCH SERVICE
+         ***************************/
         stage('Switch Service to New Color') {
             steps {
-                sh """
-                    kubectl patch svc ${RELEASE_NAME} \
-                      -p '{"spec":{"selector":{"app":"${APP_NAME}","color":"${env.TARGET}"}}}'
-                """
+                sshagent([SSH_CRED]) {
+                    sh """
+                        ssh ${K8S_MASTER} \\
+                        "kubectl patch svc ${HELM_RELEASE} -n ${NAMESPACE} \
+                        -p '{\"spec\":{\"selector\":{\"app\":\"${APP_NAME}\",\"color\":\"${env.TARGET}\"}}}'"
+                    """
+                }
             }
         }
     }
 
+    /***************************
+     * 7. ROLLBACK ON FAILURE
+     ***************************/
     post {
         failure {
-            script {
-                echo "Deployment failed, Rolling Back..."
+            sshagent([SSH_CRED]) {
+                script {
+                    echo "Deployment failed — performing rollback"
+                    def rollbackColor = env.TARGET == "blue" ? "green" : "blue"
 
-                def rollbackColor = env.TARGET == "blue" ? "green" : "blue"
-
-                sh """
-                    kubectl patch svc ${RELEASE_NAME} \
-                      -p '{"spec":{"selector":{"app":"${APP_NAME}","color":"${rollbackColor}"}}}'
-                """
+                    sh """
+                        ssh ${K8S_MASTER} \\
+                        "kubectl patch svc ${HELM_RELEASE} -n ${NAMESPACE} \
+                        -p '{\"spec\":{\"selector\":{\"app\":\"${APP_NAME}\",\"color\":\"${rollbackColor}\"}}}'"
+                    """
+                }
             }
         }
     }
