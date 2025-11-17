@@ -184,6 +184,7 @@ stage('Switch Service to New Color') {
         }
     }
 }
+    }
 
     /***************************
      * 8. ROLLBACK
