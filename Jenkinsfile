@@ -193,20 +193,18 @@ stage('Switch Service to New Color') {
     /***************************
      * 8. ROLLBACK
      ***************************/
-    post {
-        failure {
-            sshagent([SSH_CRED]) {
-                script {
-                    def rollbackColor = env.TARGET == "blue" ? "green" : "blue"
+   post {
+    failure {
+        sshagent([SSH_CRED]) {
+            script {
+                def rollbackColor = env.TARGET == "blue" ? "green" : "blue"
 
-                    sh """
-                        ssh ${K8S_MASTER} "
-                            kubectl patch svc ${HELM_RELEASE} -n ${NAMESPACE} \
-                            -p '{\"spec\":{\"selector\":{\"app\":\"${APP_NAME}\",\"color\":\"${rollbackColor}\"}}}'
-                        "
-                    """
-                }
+                sh """
+                    ssh -o StrictHostKeyChecking=no ${K8S_MASTER} \\
+                    "kubectl patch svc ${HELM_RELEASE} -n ${NAMESPACE} -p '{\\\\\"spec\\\\\":{\\\\\"selector\\\\\":{\\\\\"app\\\\\":\\\\\"${APP_NAME}\\\\\",\\\\\"color\\\\\":\\\\\"${rollbackColor}\\\\\"}}}'"
+                """
             }
         }
     }
+}
 }
