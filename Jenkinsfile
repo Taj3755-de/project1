@@ -96,22 +96,27 @@ pipeline {
         /***************************
          * 5. DEPLOY WITH HELM
          ***************************/
-        stage('Deploy New Color using Helm') {
-            steps {
-                sshagent([SSH_CRED]) {
-                    sh """
-                        ssh ${K8S_MASTER} "
-                            helm upgrade --install ${HELM_RELEASE} ${HELM_CHART_PATH} \
-                                --namespace ${NAMESPACE} \
-                                -f ${HELM_CHART_PATH}/values-${env.TARGET}.yaml \
-                                --set color=${env.TARGET} \
-                                --set image.tag=${BUILD_NUMBER} \
-                                --set image.repository=${IMAGE_URI}
-                        "
-                    """
-                }
+stage('Deploy New Color using Helm') {
+    steps {
+        sshagent([SSH_CRED]) {
+            script {
+                def releaseName = "${HELM_RELEASE}-${env.TARGET}"
+
+                sh """
+                    ssh ${K8S_MASTER} "
+                        helm upgrade --install ${releaseName} ${HELM_CHART_PATH} \
+                            --namespace ${NAMESPACE} \
+                            -f ${HELM_CHART_PATH}/values-${env.TARGET}.yaml \
+                            --set color=${env.TARGET} \
+                            --set image.tag=${BUILD_NUMBER} \
+                            --set image.repository=${IMAGE_URI}
+                    "
+                """
             }
         }
+    }
+}
+
 
         /***************************
          * 6. HEALTH CHECK
