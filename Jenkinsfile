@@ -121,6 +121,7 @@ stage('Health Check') {
         sshagent([SSH_CRED]) {
             script {
 
+                // Get pod name dynamically
                 def pod = sh(
                     script: """
                         ssh ${K8S_MASTER} "kubectl get pods -n ${NAMESPACE} -l app=${APP_NAME},color=${env.TARGET} -o jsonpath='{.items[0].metadata.name}'"
@@ -130,34 +131,35 @@ stage('Health Check') {
 
                 echo "Checking health for pod: ${pod}"
 
+                // Build the SSH command in Groovy, NOT inside bash
+                def healthCmd = """
+                    kubectl wait --for=condition=Ready pod/${pod} -n ${NAMESPACE} --timeout=60s || exit 1;
+
+                    CONTAINER=\\\$(kubectl get pod ${pod} -n ${NAMESPACE} -o jsonpath="{.spec.containers[0].name}");
+                    echo Using container: \${CONTAINER};
+
+                    for i in {1..10}; do
+                        RAW=\\\$(kubectl exec -n ${NAMESPACE} ${pod} -c \${CONTAINER} -- curl -s http://localhost:8080${HEALTH_URL});
+                        echo Response: \${RAW};
+
+                        STATUS=\\\$(echo \${RAW} | grep -o "UP" || true);
+
+                        if [ "\${STATUS}" = "UP" ]; then
+                            echo Health OK;
+                            exit 0;
+                        fi;
+
+                        echo Retrying health check...;
+                        sleep 5;
+                    done;
+
+                    echo Health FAILED;
+                    exit 1;
+                """
+
+                // Now run the SSH command as a SINGLE command (no Groovy parsing)
                 sh """
-                    ssh ${K8S_MASTER} '
-                        # Wait for pod to be Ready
-                        kubectl wait --for=condition=Ready pod/${pod} -n ${NAMESPACE} --timeout=60s || exit 1
-
-                        # Get container name
-                        CONTAINER=$(kubectl get pod ${pod} -n ${NAMESPACE} -o jsonpath="{.spec.containers[0].name}")
-                        echo "Using container: \$CONTAINER"
-
-                        for i in {1..10}; do
-
-                            RAW=$(kubectl exec -n ${NAMESPACE} ${pod} -c \$CONTAINER -- curl -s http://localhost:8080${HEALTH_URL})
-                            echo "Response: \$RAW"
-
-                            STATUS=$(echo \$RAW | grep -o "UP" || true)
-
-                            if [ "\$STATUS" = "UP" ]; then
-                                echo "Health OK"
-                                exit 0
-                            fi
-
-                            echo "Retrying health check..."
-                            sleep 5
-                        done
-
-                        echo "Health FAILED"
-                        exit 1
-                    '
+                    ssh ${K8S_MASTER} '${healthCmd}'
                 """
             }
         }
