@@ -172,19 +172,18 @@ stage('Health Check') {
         /***************************
          * 7. SWITCH TRAFFIC
          ***************************/
-        stage('Switch Service to New Color') {
-            steps {
-                sshagent([SSH_CRED]) {
-                    sh """
-                        ssh ${K8S_MASTER} "
-                            kubectl patch svc ${HELM_RELEASE} -n ${NAMESPACE} \
-                            -p '{\"spec\":{\"selector\":{\"app\":\"${APP_NAME}\",\"color\":\"${env.TARGET}\"}}}'
-                        "
-                    """
-                }
-            }
+stage('Switch Service to New Color') {
+    steps {
+        sshagent([SSH_CRED]) {
+            sh """
+                ssh ${K8S_MASTER} '
+                    kubectl patch svc ${HELM_RELEASE} -n ${NAMESPACE} \
+                    -p "{\\"spec\\":{\\"selector\\":{\\"app\\":\\"${APP_NAME}\\",\\"color\\":\\"${env.TARGET}\\"}}}"
+                '
+            """
         }
     }
+}
 
     /***************************
      * 8. ROLLBACK
