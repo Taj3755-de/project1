@@ -149,7 +149,7 @@ stage('Health Check') {
 
                         STATUS=\$(echo \$RAW | grep -o "UP" || true);
 
-                        if [ "\$STATUS" = "UP" ]; then
+                        if [ "\$STATUS" = "DOWN" ]; then
                             echo "Health OK";
                             exit 0;
                         fi;
@@ -162,8 +162,7 @@ stage('Health Check') {
                     exit 1;
                 """
 
-                // RUN inside SSH — no Groovy interpolation inside the script
-                sh """
+                    sh """
                     ssh ${K8S_MASTER} '${healthCmd}'
                 """
             }
