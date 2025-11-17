@@ -1,4 +1,4 @@
-pipeline {
+    pipeline {
     agent any
 
     environment {
@@ -149,7 +149,7 @@ stage('Health Check') {
 
                         STATUS=\$(echo \$RAW | grep -o "UP" || true);
 
-                        if [ "\$STATUS" = "DOWN" ]; then
+                        if [ "\$STATUS" = "UP" ]; then
                             echo "Health OK";
                             exit 0;
                         fi;
