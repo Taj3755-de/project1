@@ -193,10 +193,12 @@ stage('Switch Service to New Color') {
     /***************************
      * 8. ROLLBACK
      ***************************/
-   post {
+ post {
     failure {
         sshagent([SSH_CRED]) {
             script {
+
+                // Determine rollback target color
                 def rollbackColor = env.TARGET == "blue" ? "green" : "blue"
 
                 sh """
