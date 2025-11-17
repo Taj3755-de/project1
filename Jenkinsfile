@@ -131,33 +131,33 @@ stage('Health Check') {
 
                 echo "Checking health for pod: ${pod}"
 
-                // Build the SSH command in Groovy, NOT inside bash
+                // Build SSH script (no Groovy escaping issues)
                 def healthCmd = """
                     kubectl wait --for=condition=Ready pod/${pod} -n ${NAMESPACE} --timeout=60s || exit 1;
 
-                    CONTAINER=\\\$(kubectl get pod ${pod} -n ${NAMESPACE} -o jsonpath="{.spec.containers[0].name}");
-                    echo Using container: \${CONTAINER};
+                    CONTAINER="bluegreen-app";
+                    echo Using container: \$CONTAINER;
 
                     for i in {1..10}; do
-                        RAW=\\\$(kubectl exec -n ${NAMESPACE} ${pod} -c \${CONTAINER} -- curl -s http://localhost:8080${HEALTH_URL});
-                        echo Response: \${RAW};
+                        RAW=\$(kubectl exec -n ${NAMESPACE} ${pod} -c \$CONTAINER -- curl -s http://localhost:8080${HEALTH_URL});
+                        echo "Response: \$RAW";
 
-                        STATUS=\\\$(echo \${RAW} | grep -o "UP" || true);
+                        STATUS=\$(echo \$RAW | grep -o "UP" || true);
 
-                        if [ "\${STATUS}" = "UP" ]; then
-                            echo Health OK;
+                        if [ "\$STATUS" = "UP" ]; then
+                            echo "Health OK";
                             exit 0;
                         fi;
 
-                        echo Retrying health check...;
+                        echo "Retrying health check...";
                         sleep 5;
                     done;
 
-                    echo Health FAILED;
+                    echo "Health FAILED";
                     exit 1;
                 """
 
-                // Now run the SSH command as a SINGLE command (no Groovy parsing)
+                // RUN inside SSH — no Groovy interpolation inside the script
                 sh """
                     ssh ${K8S_MASTER} '${healthCmd}'
                 """
@@ -165,6 +165,7 @@ stage('Health Check') {
         }
     }
 }
+
 
 
 
