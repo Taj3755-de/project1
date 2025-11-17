@@ -116,7 +116,7 @@ pipeline {
         /***************************
          * 6. HEALTH CHECK
          ***************************/
-     stage('Health Check') {
+stage('Health Check') {
     steps {
         sshagent([SSH_CRED]) {
             script {
@@ -132,15 +132,15 @@ pipeline {
 
                 sh """
                     ssh ${K8S_MASTER} '
-                        # Wait for pod to be in Ready state
+                        # Wait for pod to be Ready
                         kubectl wait --for=condition=Ready pod/${pod} -n ${NAMESPACE} --timeout=60s || exit 1
 
-                        # Get container name dynamically
+                        # Get container name
                         CONTAINER=$(kubectl get pod ${pod} -n ${NAMESPACE} -o jsonpath="{.spec.containers[0].name}")
-
                         echo "Using container: \$CONTAINER"
 
                         for i in {1..10}; do
+
                             RAW=$(kubectl exec -n ${NAMESPACE} ${pod} -c \$CONTAINER -- curl -s http://localhost:8080${HEALTH_URL})
                             echo "Response: \$RAW"
 
@@ -163,6 +163,7 @@ pipeline {
         }
     }
 }
+
 
 
         /***************************
