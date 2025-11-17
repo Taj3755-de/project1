@@ -21,6 +21,8 @@ spec:
         color: {{ .Values.color }}
 
     spec:
+      imagePullSecrets:
+        - name: ecr-secret 
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
