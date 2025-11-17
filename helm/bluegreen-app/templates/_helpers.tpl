@@ -1,0 +1,1 @@
+{{- define "app.name" -}}bluegreen{{- end }}

@@ -1,0 +1,1 @@
+const express=require('express');const app=express();app.get('/actuator/health',(req,res)=>res.json({status:"UP"}));app.get('/',(r,s)=>s.send("BlueGreen Running"));app.listen(8080);
