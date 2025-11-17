@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         APP_NAME        = "bluegreen-app"
-        IMAGE_REPO      = "157314643992.dkr.ecr.us-east-1.amazonaws.com/finacplus/app"
+        IMAGE_REPO      = "157314643992.dkr.ecr.us-east-1.amazonaws.com/finacplus/app-01v"
         AWS_REGION      = "us-east-1"
         CHART_PATH      = "helm/bluegreen-app"
         RELEASE_NAME    = "finacplus"
