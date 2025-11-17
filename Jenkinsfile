@@ -53,31 +53,33 @@ pipeline {
         /***************************
          * 3. DETECT LIVE COLOR
          ***************************/
-        stage('Detect Live Color') {
-            steps {
-                sshagent([SSH_CRED]) {
-                    script {
-                        def activeColor = sh(
-                            script: """
-                                ssh -o StrictHostKeyChecking=no ${K8S_MASTER} \\
-                                "kubectl get svc ${HELM_RELEASE} -n ${NAMESPACE} -o jsonpath='{.spec.selector.color}'"
-                            """,
-                            returnStdout: true
-                        ).trim()
+  stage('Detect Live Color') {
+    steps {
+        sshagent([SSH_CRED]) {
+            script {
+                def activeColor = sh(
+                    script: """
+                        ssh -o StrictHostKeyChecking=no ${K8S_MASTER} \\
+                        "kubectl get svc ${HELM_RELEASE} -n ${NAMESPACE} -o jsonpath='{.spec.selector.color}' 2>/dev/null || echo ''"
+                    """,
+                    returnStdout: true
+                ).trim()
 
-                        if (activeColor == "blue") {
-                            env.TARGET = "green"
-                        } else if (activeColor == "green") {
-                            env.TARGET = "blue"
-                        } else {
-                            env.TARGET = "blue"
-                        }
-
-                        echo "Active color: ${activeColor}, deploying to: ${env.TARGET}"
-                    }
+                if (activeColor == "blue") {
+                    env.TARGET = "green"
+                } else if (activeColor == "green") {
+                    env.TARGET = "blue"
+                } else {
+                    echo "Service not found — assuming first deploy. Deploying BLUE."
+                    env.TARGET = "blue"
                 }
+
+                echo "Active color: ${activeColor}, deploying to: ${env.TARGET}"
             }
         }
+    }
+}
+
 
         /***************************
          * 4. DEPLOY USING HELM
