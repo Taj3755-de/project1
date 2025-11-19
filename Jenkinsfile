@@ -2,42 +2,27 @@
     agent any
 
     environment {
-        // Application
-        APP_NAME        = "bluegreen-app"
-
-        // AWS ECR
-        AWS_REGION      = "us-east-1"
+       APP_NAME        = "bluegreen-app"
+       AWS_REGION      = "us-east-1"
         ACCOUNT_ID      = "157314643992"
         REPO            = "finacplus/app-01v"
         IMAGE_URI       = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${REPO}"
-
-        // Kubernetes SSH
         K8S_MASTER      = "rocky@172.31.86.230"
         SSH_CRED        = "kube-master-ssh"
-
-        // Helm
         HELM_RELEASE    = "finacplus"
         HELM_CHART_PATH = "/home/rocky/helm/bluegreen"
         NAMESPACE       = "default"
-
-        // Health Endpoint
         HEALTH_URL      = "/actuator/health"
     }
 
     stages {
 
-        /***************************
-         * 1. CHECKOUT
-         ***************************/
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        /***************************
-         * 2. BUILD AND PUSH IMAGE
-         ***************************/
         stage('Build & Push Docker Image') {
             steps {
                 sh """
@@ -50,9 +35,7 @@
             }
         }
 
-        /***************************
-         * 3. UPLOAD HELM CHART
-         ***************************/
+
         stage('Upload Helm Chart') {
             steps {
                 sshagent([SSH_CRED]) {
@@ -65,9 +48,6 @@
             }
         }
 
-        /***************************
-         * 4. DETECT COLOR
-         ***************************/
         stage('Detect Live Color') {
             steps {
                 sshagent([SSH_CRED]) {
@@ -93,9 +73,6 @@
             }
         }
 
-        /***************************
-         * 5. DEPLOY WITH HELM
-         ***************************/
 stage('Deploy New Color using Helm') {
     steps {
         sshagent([SSH_CRED]) {
@@ -118,9 +95,7 @@ stage('Deploy New Color using Helm') {
 }
 
 
-        /***************************
-         * 6. HEALTH CHECK
-         ***************************/
+
 stage('Health Check') {
     steps {
         sshagent([SSH_CRED]) {
@@ -136,7 +111,6 @@ stage('Health Check') {
 
                 echo "Checking health for pod: ${pod}"
 
-                // Build SSH script (no Groovy escaping issues)
                 def healthCmd = """
                     kubectl wait --for=condition=Ready pod/${pod} -n ${NAMESPACE} --timeout=60s || exit 1;
 
@@ -170,19 +144,12 @@ stage('Health Check') {
     }
 }
 
-
-
-
-        /***************************
-         * 7. SWITCH TRAFFIC
-         ***************************/
 stage('Switch Service to New Color') {
     steps {
         sshagent([SSH_CRED]) {
             sh """
                 ssh ${K8S_MASTER} '
-                    kubectl patch svc ${HELM_RELEASE} -n ${NAMESPACE} \
-                    -p "{\\"spec\\":{\\"selector\\":{\\"app\\":\\"${APP_NAME}\\",\\"color\\":\\"${env.TARGET}\\"}}}"
+                    kubectl patch svc ${HELM_RELEASE} -n ${NAMESPACE} -p "{\\"spec\\":{\\"selector\\":{\\"app\\":\\"${APP_NAME}\\",\\"color\\":\\"${env.TARGET}\\"}}}"
                 '
             """
         }
@@ -190,9 +157,6 @@ stage('Switch Service to New Color') {
 }
     }
 
-    /***************************
-     * 8. ROLLBACK
-     ***************************/
  post {
     failure {
         sshagent([SSH_CRED]) {
